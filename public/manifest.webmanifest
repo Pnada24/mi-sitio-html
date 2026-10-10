@@ -1,0 +1,18 @@
+{
+  "name": "Storeboard · Pedidos DEMO",
+  "short_name": "Storeboard",
+  "description": "Herramienta privada de compras simuladas y avisos push",
+  "start_url": "/",
+  "display": "standalone",
+  "scope": "/",
+  "background_color": "#f7f8fa",
+  "theme_color": "#194e37",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
