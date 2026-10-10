@@ -7,7 +7,8 @@ function msg(id,text,error=false){const x=el(id);x.classList.remove('hidden');x.
 function clearMsg(id){el(id).classList.add('hidden')}
 async function api(route,method='GET',data){const headers={};if(pin)headers['X-Admin-Pin']=pin;if(data!==undefined)headers['Content-Type']='application/json';const r=await fetch(route,{method,headers,cache:'no-store',body:data!==undefined?JSON.stringify(data):undefined});let x;try{x=await r.json()}catch{throw Error('No se obtuvo respuesta del servidor')};if(!r.ok)throw Error(x.error||'Error');return x}
 let lastObservedOrder,readyForSounds=false,soundEnabled=false;
-const orderSound=new Audio();
+const orderSound=new Audio('/sale-chime.mp3');
+orderSound.preload='auto';
 try{const saved=localStorage.getItem('storeboard_custom_sale_sound');if(saved)orderSound.src=saved}catch{}
 function playOrderSound(){
   if(!soundEnabled||!orderSound.src||document.hidden)return;
@@ -59,7 +60,7 @@ el('save-sound').addEventListener('click',()=>{
   reader.readAsDataURL(file);
 });
 el('test-sound').addEventListener('click',()=>{
-  if(!orderSound.src)return msg('sound-result','Guarda primero un MP3.',true);
+  if(!orderSound.src)return msg('sound-result','Todavía no está disponible el sonido.',true);
   soundEnabled=true;
   orderSound.pause();orderSound.currentTime=0;
   orderSound.play().then(()=>msg('sound-result','Sonido activado para pedidos nuevos mientras la aplicación esté abierta.')).catch(()=>msg('sound-result','El iPhone bloqueó la reproducción. Toca el botón de nuevo.',true));
