@@ -174,12 +174,13 @@ el('upload-logo').addEventListener('click',async()=>{
   try{
     const image=await cropImage(file);
     render(await api('/api/logo','POST',{image}));
+    try{localStorage.setItem('storeboard_logo_backup',image)}catch{}
     msg('logo-result','Logo guardado. Se usará en el panel y se intentará mostrar en las notificaciones. iOS puede seguir mostrando el icono de la app instalada.');
   }catch(e){msg('logo-result',e.message,true)}
   finally{btn.disabled=false}
 });
 el('remove-logo').addEventListener('click',async()=>{
-  try{render(await api('/api/logo','POST',{image:null}));el('brand-file').value='';msg('logo-result','Logo original restaurado.')}catch(e){msg('logo-result',e.message,true)}
+  try{render(await api('/api/logo','POST',{image:null}));try{localStorage.removeItem('storeboard_logo_backup')}catch{}el('brand-file').value='';msg('logo-result','Logo original restaurado.')}catch(e){msg('logo-result',e.message,true)}
 });
 
 if(pin)enter().catch(()=>{pin='';sessionStorage.removeItem('storeboard_admin');el('dashboard').classList.add('hidden');el('login').classList.remove('hidden')});
