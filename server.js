@@ -5,14 +5,14 @@ if(ADMIN_PIN.length<12||!process.env.VAPID_PUBLIC_KEY||!process.env.VAPID_PRIVAT
 webpush.setVapidDetails(process.env.VAPID_SUBJECT||'mailto:admin@example.com',process.env.VAPID_PUBLIC_KEY,process.env.VAPID_PRIVATE_KEY);
 const dir=path.resolve(process.env.DATA_DIR||'./data'),store=path.join(dir,'state.json');
 fs.mkdirSync(dir,{recursive:true});
-const initial=()=>({settings:{storeName:'Mi tienda',customerName:'Cliente de prueba',productName:'Pedido especial',amount:64.99,currency:'USD',orderPrefix:'SB',itemCount:1,frequency:60,batchLimit:10,batchSent:0,autoEnabled:false,baseOrders:0,baseRevenue:0,logoData:null,logoVersion:0,savedAt:0},orders:[],subscriptions:[],seq:1000,nextRun:0});
-let db=initial();try{let old=JSON.parse(fs.readFileSync(store,'utf8'));db={...db,...old,settings:{...db.settings,...old.settings}}}catch{}
+const initial=()=>({settings:{storeName:'Mi tienda',customerName:'Cliente de prueba',productName:'Pedido especial',amount:64.99,currency:'USD',orderPrefix:'SB',itemCount:1,frequency:60,batchLimit:10,batchSent:0,autoEnabled:false,baseOrders:0,baseRevenue:0,logoData:null,logoVersion:0,savedAt:0},orders:[],subscriptions:[],seq:1000,nextRun:0,instanceId:crypto.randomUUID()});
+let db=initial();try{let old=JSON.parse(fs.readFileSync(store,'utf8'));db={...db,...old,settings:{...db.settings,...old.settings}}}catch{};if(!db.instanceId)db.instanceId=crypto.randomUUID();
 const save=()=>{fs.writeFileSync(store+'.tmp',JSON.stringify(db),{mode:0o600});fs.renameSync(store+'.tmp',store)};
 const reply=(res,code,obj)=>{res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(obj))};
 const safe=(v,len=80)=>String(v??'').replace(/[<>]/g,'').trim().slice(0,len);
 const pass=req=>{const a=Buffer.from(String(req.headers['x-admin-pin']||'')),b=Buffer.from(ADMIN_PIN);return a.length===b.length&&crypto.timingSafeEqual(a,b)};
 async function body(req){let bufs=[],n=0;for await(const x of req){n+=x.length;if(n>350000)throw new Error('Payload too large');bufs.push(x)}return JSON.parse(Buffer.concat(bufs).toString('utf8')||'{}')}
-function summary(){const s=db.settings,{logoData,...otherSettings}=s;return {settings:{...otherSettings,hasLogo:!!logoData},connectedDevices:db.subscriptions.length,totalOrders:s.baseOrders+db.orders.length,revenue:+(s.baseRevenue+db.orders.reduce((a,x)=>a+x.amount,0)).toFixed(2),orders:db.orders.slice(0,50),nextOrderNumber:db.seq+1,nextRun:db.nextRun}}
+function summary(){const s=db.settings,{logoData,...otherSettings}=s;return {settings:{...otherSettings,hasLogo:!!logoData},connectedDevices:db.subscriptions.length,totalOrders:s.baseOrders+db.orders.length,revenue:+(s.baseRevenue+db.orders.reduce((a,x)=>a+x.amount,0)).toFixed(2),orders:db.orders.slice(0,50),nextOrderNumber:db.seq+1,nextRun:db.nextRun,instanceId:db.instanceId}}
 async function makeOrder(){
   const s=db.settings;const o={number:(s.orderPrefix?s.orderPrefix+'-':'')+(++db.seq),itemCount:Math.max(1,Number(s.itemCount)||1),amount:s.amount,currency:s.currency,customer:s.customerName,product:s.productName,createdAt:new Date().toISOString(),type:'SIMULATED'};
   db.orders.unshift(o);db.orders=db.orders.slice(0,200);save();let accepted=0,failed=0;
