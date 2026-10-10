@@ -16,7 +16,7 @@ function summary(){const s=db.settings,{logoData,...otherSettings}=s;return {set
 async function makeOrder(){
   const s=db.settings;const o={number:(s.orderPrefix?s.orderPrefix+'-':'')+(++db.seq),itemCount:Math.max(1,Number(s.itemCount)||1),amount:s.amount,currency:s.currency,customer:s.customerName,product:s.productName,createdAt:new Date().toISOString(),type:'SIMULATED'};
   db.orders.unshift(o);db.orders=db.orders.slice(0,200);save();let accepted=0,failed=0;
-  const payload=JSON.stringify({title:'Order #'+o.number,body:new Intl.NumberFormat('en-US',{style:'currency',currency:s.currency}).format(o.amount)+', '+o.itemCount+' '+(o.itemCount===1?'item':'items')+' from '+s.storeName+' · Simulado',number:o.number,logoVersion:s.logoVersion||0});
+  const payload=JSON.stringify({title:'Order #'+o.number,body:new Intl.NumberFormat('en-US',{style:'currency',currency:s.currency}).format(o.amount)+', '+o.itemCount+' '+(o.itemCount===1?'item':'items')+' from '+s.storeName,number:o.number,logoVersion:s.logoVersion||0});
   const gone=new Set();
   await Promise.all(db.subscriptions.map(async sub=>{try{await webpush.sendNotification(sub,payload,{TTL:900,urgency:'high'});accepted++}catch(e){failed++;if([404,410].includes(e.statusCode))gone.add(sub.endpoint);else console.warn('push failed',e.statusCode||e.message)}}));
   if(gone.size){db.subscriptions=db.subscriptions.filter(x=>!gone.has(x.endpoint));save()}
