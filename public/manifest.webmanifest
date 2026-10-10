@@ -1,13 +1,18 @@
 {
-  "name": "Storeboard · Pedidos DEMO",
+  "name": "Storeboard · Mi tienda",
   "short_name": "Storeboard",
-  "description": "Herramienta privada de compras simuladas y avisos push",
+  "description": "Panel privado para crear pedidos simulados y recibir alertas de práctica",
   "start_url": "/",
   "display": "standalone",
   "scope": "/",
   "background_color": "#f7f8fa",
   "theme_color": "#194e37",
   "icons": [
+    {
+      "src": "/brand-icon",
+      "sizes": "any",
+      "purpose": "any maskable"
+    },
     {
       "src": "/icon.svg",
       "sizes": "any",
