@@ -5,18 +5,18 @@ if(ADMIN_PIN.length<12||!process.env.VAPID_PUBLIC_KEY||!process.env.VAPID_PRIVAT
 webpush.setVapidDetails(process.env.VAPID_SUBJECT||'mailto:admin@example.com',process.env.VAPID_PUBLIC_KEY,process.env.VAPID_PRIVATE_KEY);
 const dir=path.resolve(process.env.DATA_DIR||'./data'),store=path.join(dir,'state.json');
 fs.mkdirSync(dir,{recursive:true});
-const initial=()=>({settings:{storeName:'Mi tienda',customerName:'Cliente de prueba',productName:'Pedido especial',amount:64.99,currency:'USD',frequency:60,batchLimit:10,batchSent:0,autoEnabled:false,baseOrders:0,baseRevenue:0},orders:[],subscriptions:[],seq:1000,nextRun:0});
+const initial=()=>({settings:{storeName:'Mi tienda',customerName:'Cliente de prueba',productName:'Pedido especial',amount:64.99,currency:'USD',frequency:60,batchLimit:10,batchSent:0,autoEnabled:false,baseOrders:0,baseRevenue:0,logoData:null,logoVersion:0},orders:[],subscriptions:[],seq:1000,nextRun:0});
 let db=initial();try{let old=JSON.parse(fs.readFileSync(store,'utf8'));db={...db,...old,settings:{...db.settings,...old.settings}}}catch{}
 const save=()=>{fs.writeFileSync(store+'.tmp',JSON.stringify(db),{mode:0o600});fs.renameSync(store+'.tmp',store)};
 const reply=(res,code,obj)=>{res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(obj))};
 const safe=(v,len=80)=>String(v??'').replace(/[<>]/g,'').trim().slice(0,len);
 const pass=req=>{const a=Buffer.from(String(req.headers['x-admin-pin']||'')),b=Buffer.from(ADMIN_PIN);return a.length===b.length&&crypto.timingSafeEqual(a,b)};
-async function body(req){let bufs=[],n=0;for await(const x of req){n+=x.length;if(n>30000)throw new Error('Payload too large');bufs.push(x)}return JSON.parse(Buffer.concat(bufs).toString('utf8')||'{}')}
-function summary(){const s=db.settings;return {settings:s,connectedDevices:db.subscriptions.length,totalOrders:s.baseOrders+db.orders.length,revenue:+(s.baseRevenue+db.orders.reduce((a,x)=>a+x.amount,0)).toFixed(2),orders:db.orders.slice(0,50),nextRun:db.nextRun}}
+async function body(req){let bufs=[],n=0;for await(const x of req){n+=x.length;if(n>350000)throw new Error('Payload too large');bufs.push(x)}return JSON.parse(Buffer.concat(bufs).toString('utf8')||'{}')}
+function summary(){const s=db.settings,{logoData,...otherSettings}=s;return {settings:{...otherSettings,hasLogo:!!logoData},connectedDevices:db.subscriptions.length,totalOrders:s.baseOrders+db.orders.length,revenue:+(s.baseRevenue+db.orders.reduce((a,x)=>a+x.amount,0)).toFixed(2),orders:db.orders.slice(0,50),nextRun:db.nextRun}}
 async function makeOrder(){
-  const s=db.settings;const o={number:'SB-'+(++db.seq),amount:s.amount,currency:s.currency,customer:s.customerName,product:s.productName,createdAt:new Date().toISOString(),type:'DEMO'};
+  const s=db.settings;const o={number:'SB-'+(++db.seq),amount:s.amount,currency:s.currency,customer:s.customerName,product:s.productName,createdAt:new Date().toISOString(),type:'SIMULATED'};
   db.orders.unshift(o);db.orders=db.orders.slice(0,200);save();let accepted=0,failed=0;
-  const payload=JSON.stringify({title:s.storeName+' · Pedido DEMO',body:'#'+o.number+' · '+new Intl.NumberFormat('en-US',{style:'currency',currency:s.currency}).format(o.amount)+' · '+o.product,number:o.number});
+  const payload=JSON.stringify({title:s.storeName+' · Nuevo pedido',body:'#'+o.number+' · '+new Intl.NumberFormat('en-US',{style:'currency',currency:s.currency}).format(o.amount)+' · '+o.product+' · Simulado',number:o.number,logoVersion:s.logoVersion||0});
   const gone=new Set();
   await Promise.all(db.subscriptions.map(async sub=>{try{await webpush.sendNotification(sub,payload,{TTL:900,urgency:'high'});accepted++}catch(e){failed++;if([404,410].includes(e.statusCode))gone.add(sub.endpoint);else console.warn('push failed',e.statusCode||e.message)}}));
   if(gone.size){db.subscriptions=db.subscriptions.filter(x=>!gone.has(x.endpoint));save()}
@@ -44,6 +44,15 @@ const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=
 const hits=new Map();
 http.createServer(async(req,res)=>{
   const p=new URL(req.url,'http://localhost').pathname;
+  if(p==='/brand-icon'){
+    const data=db.settings.logoData;
+    if(!data){res.writeHead(302,{Location:'/icon.svg','Cache-Control':'no-store'});return res.end()}
+    const match=/^data:image\/(jpeg|png|webp);base64,([a-zA-Z0-9+/=]+)$/.exec(data);
+    if(!match){res.writeHead(404);return res.end('Not found')}
+    const buf=Buffer.from(match[2],'base64');
+    res.writeHead(200,{'Content-Type':'image/'+match[1],'Content-Length':buf.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
+    return res.end(buf)
+  }
   if(p==='/health')return reply(res,200,{ok:true});
   if(p==='/api/public')return reply(res,200,{publicKey:process.env.VAPID_PUBLIC_KEY});
   if(p.startsWith('/api/')){
@@ -54,6 +63,23 @@ http.createServer(async(req,res)=>{
     try{
       if(req.method==='GET'&&p==='/api/status')return reply(res,200,summary());
       if(req.method==='POST'&&p==='/api/subscribe'){const b=await body(req);if(typeof b.endpoint!=='string'||!b.endpoint.startsWith('https://')||b.endpoint.length>3000||typeof b.keys?.auth!=='string'||typeof b.keys?.p256dh!=='string')return reply(res,400,{error:'Suscripción inválida'});db.subscriptions=db.subscriptions.filter(x=>x.endpoint!==b.endpoint);db.subscriptions.push({endpoint:b.endpoint,keys:{auth:b.keys.auth.slice(0,256),p256dh:b.keys.p256dh.slice(0,256)}});db.subscriptions=db.subscriptions.slice(-20);save();return reply(res,200,{ok:true})}
+      if(req.method==='POST'&&p==='/api/logo'){
+        const b=await body(req),v=b.image;
+        if(v!==null && typeof v!=='string')return reply(res,400,{error:'Imagen inválida'});
+        if(v!==null){
+          const m=/^data:image\/(jpeg|png|webp);base64,([a-zA-Z0-9+/=]+)$/.exec(v);
+          if(!m)return reply(res,400,{error:'Solo se admiten imágenes JPG, PNG o WebP'});
+          const bytes=Buffer.from(m[2],'base64');
+          if(bytes.length<100||bytes.length>180000)return reply(res,400,{error:'La imagen debe pesar menos de 180 KB'});
+          const png=bytes.subarray(0,8).toString('hex')==='89504e470d0a1a0a';
+          const jpg=bytes.subarray(0,2).toString('hex')==='ffd8';
+          const webp=bytes.subarray(0,4).toString()==='RIFF'&&bytes.subarray(8,12).toString()==='WEBP';
+          if(!(m[1]==='png'&&png||m[1]==='jpeg'&&jpg||m[1]==='webp'&&webp))return reply(res,400,{error:'Archivo de imagen incorrecto'});
+        }
+        db.settings.logoData=v;
+        db.settings.logoVersion=Date.now();
+        save();return reply(res,200,summary())
+      }
       if(req.method==='POST'&&p==='/api/trigger'){if(generating)return reply(res,429,{error:'Espera unos segundos'});generating=true;try{return reply(res,200,await makeOrder())}finally{generating=false}}
       if(req.method==='POST'&&p==='/api/settings'){const b=await body(req),s=db.settings;s.storeName=safe(b.storeName,48)||s.storeName;s.customerName=safe(b.customerName,72)||s.customerName;s.productName=safe(b.productName,72)||s.productName;s.amount=Math.round(Math.max(0.01,Math.min(100000,Number(b.amount)||0.01))*100)/100;s.currency=['USD','EUR','MXN','DOP'].includes(b.currency)?b.currency:'USD';s.frequency=[3,15,30,60,120,300,900].includes(+b.frequency)?+b.frequency:60;s.batchLimit=Math.min(100,Math.max(1,Math.floor(Number(b.batchLimit)||10)));s.batchSent=0;s.autoEnabled=b.autoEnabled===true;s.baseOrders=Math.max(0,Math.min(100000,Math.floor(Number(b.baseOrders)||0)));s.baseRevenue=Math.max(0,Math.min(10000000,Number(b.baseRevenue)||0));db.nextRun=s.autoEnabled?Date.now()+s.frequency*1000:0;save();return reply(res,200,summary())}
       return reply(res,404,{error:'Ruta no encontrada'});
