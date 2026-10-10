@@ -40,7 +40,7 @@ setInterval(async()=>{
   }catch(e){console.error('automatic order:',e.message);db.nextRun=Date.now()+s.frequency*1000;save()}
   finally{generating=false}
 },500);
-const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'};
+const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.webmanifest':'application/manifest+json','.mp3':'audio/mpeg'};
 const hits=new Map();
 http.createServer(async(req,res)=>{
   const p=new URL(req.url,'http://localhost').pathname;
@@ -103,7 +103,7 @@ http.createServer(async(req,res)=>{
   }
   if(req.method!=='GET'&&req.method!=='HEAD')return reply(res,405,{error:'Método no permitido'});
   const target=p==='/'?'index.html':p.slice(1);
-  if(!/^(index\.html|app\.js|sw\.js|icon\.svg|manifest\.webmanifest)$/.test(target)){res.writeHead(404);return res.end('Not Found')}
+  if(!/^(index\.html|app\.js|sw\.js|icon\.svg|manifest\.webmanifest|sale-chime\.mp3)$/.test(target)){res.writeHead(404);return res.end('Not Found')}
   fs.readFile(path.join(__dirname,'public',target),(err,bytes)=>{
     if(err){res.writeHead(404);return res.end('Not Found')}
     if(target==='index.html'){
