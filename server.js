@@ -5,7 +5,7 @@ if(ADMIN_PIN.length<12||!process.env.VAPID_PUBLIC_KEY||!process.env.VAPID_PRIVAT
 webpush.setVapidDetails(process.env.VAPID_SUBJECT||'mailto:admin@example.com',process.env.VAPID_PUBLIC_KEY,process.env.VAPID_PRIVATE_KEY);
 const dir=path.resolve(process.env.DATA_DIR||'./data'),store=path.join(dir,'state.json');
 fs.mkdirSync(dir,{recursive:true});
-const initial=()=>({settings:{storeName:'Mi tienda',customerName:'Cliente de prueba',productName:'Pedido especial',amount:64.99,currency:'USD',frequency:60,autoEnabled:false,baseOrders:0,baseRevenue:0},orders:[],subscriptions:[],seq:1000,nextRun:0});
+const initial=()=>({settings:{storeName:'Mi tienda',customerName:'Cliente de prueba',productName:'Pedido especial',amount:64.99,currency:'USD',frequency:60,batchLimit:10,batchSent:0,autoEnabled:false,baseOrders:0,baseRevenue:0},orders:[],subscriptions:[],seq:1000,nextRun:0});
 let db=initial();try{let old=JSON.parse(fs.readFileSync(store,'utf8'));db={...db,...old,settings:{...db.settings,...old.settings}}}catch{}
 const save=()=>{fs.writeFileSync(store+'.tmp',JSON.stringify(db),{mode:0o600});fs.renameSync(store+'.tmp',store)};
 const reply=(res,code,obj)=>{res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(obj))};
@@ -23,7 +23,23 @@ async function makeOrder(){
   return {order:o,push:{accepted,failed}};
 }
 let generating=false;
-setInterval(async()=>{if(!db.settings.autoEnabled||generating)return;if(!db.nextRun){db.nextRun=Date.now()+db.settings.frequency*1000;save()}if(Date.now()<db.nextRun)return;generating=true;db.nextRun=Date.now()+db.settings.frequency*1000;save();try{await makeOrder()}catch(e){console.error(e.message)}finally{generating=false}},1000);
+setInterval(async()=>{
+  const s=db.settings;
+  if(!s.autoEnabled||generating)return;
+  const limit=Math.min(100,Math.max(1,Number(s.batchLimit)||10));
+  if((Number(s.batchSent)||0)>=limit){s.autoEnabled=false;db.nextRun=0;save();return}
+  if(!db.nextRun){db.nextRun=Date.now()+s.frequency*1000;save()}
+  if(Date.now()<db.nextRun)return;
+  generating=true;
+  try{
+    await makeOrder();
+    s.batchSent=(Number(s.batchSent)||0)+1;
+    if(s.batchSent>=limit){s.autoEnabled=false;db.nextRun=0}
+    else db.nextRun=Date.now()+s.frequency*1000;
+    save();
+  }catch(e){console.error('automatic order:',e.message);db.nextRun=Date.now()+s.frequency*1000;save()}
+  finally{generating=false}
+},500);
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'};
 const hits=new Map();
 http.createServer(async(req,res)=>{
@@ -39,7 +55,7 @@ http.createServer(async(req,res)=>{
       if(req.method==='GET'&&p==='/api/status')return reply(res,200,summary());
       if(req.method==='POST'&&p==='/api/subscribe'){const b=await body(req);if(typeof b.endpoint!=='string'||!b.endpoint.startsWith('https://')||b.endpoint.length>3000||typeof b.keys?.auth!=='string'||typeof b.keys?.p256dh!=='string')return reply(res,400,{error:'Suscripción inválida'});db.subscriptions=db.subscriptions.filter(x=>x.endpoint!==b.endpoint);db.subscriptions.push({endpoint:b.endpoint,keys:{auth:b.keys.auth.slice(0,256),p256dh:b.keys.p256dh.slice(0,256)}});db.subscriptions=db.subscriptions.slice(-20);save();return reply(res,200,{ok:true})}
       if(req.method==='POST'&&p==='/api/trigger'){if(generating)return reply(res,429,{error:'Espera unos segundos'});generating=true;try{return reply(res,200,await makeOrder())}finally{generating=false}}
-      if(req.method==='POST'&&p==='/api/settings'){const b=await body(req),s=db.settings;s.storeName=safe(b.storeName,48)||s.storeName;s.customerName=safe(b.customerName,72)||s.customerName;s.productName=safe(b.productName,72)||s.productName;s.amount=Math.round(Math.max(0.01,Math.min(100000,Number(b.amount)||0.01))*100)/100;s.currency=['USD','EUR','MXN','DOP'].includes(b.currency)?b.currency:'USD';s.frequency=[15,30,60,120,300,900].includes(+b.frequency)?+b.frequency:60;s.autoEnabled=b.autoEnabled===true;s.baseOrders=Math.max(0,Math.min(100000,Math.floor(Number(b.baseOrders)||0)));s.baseRevenue=Math.max(0,Math.min(10000000,Number(b.baseRevenue)||0));db.nextRun=s.autoEnabled?Date.now()+s.frequency*1000:0;save();return reply(res,200,summary())}
+      if(req.method==='POST'&&p==='/api/settings'){const b=await body(req),s=db.settings;s.storeName=safe(b.storeName,48)||s.storeName;s.customerName=safe(b.customerName,72)||s.customerName;s.productName=safe(b.productName,72)||s.productName;s.amount=Math.round(Math.max(0.01,Math.min(100000,Number(b.amount)||0.01))*100)/100;s.currency=['USD','EUR','MXN','DOP'].includes(b.currency)?b.currency:'USD';s.frequency=[3,15,30,60,120,300,900].includes(+b.frequency)?+b.frequency:60;s.batchLimit=Math.min(100,Math.max(1,Math.floor(Number(b.batchLimit)||10)));s.batchSent=0;s.autoEnabled=b.autoEnabled===true;s.baseOrders=Math.max(0,Math.min(100000,Math.floor(Number(b.baseOrders)||0)));s.baseRevenue=Math.max(0,Math.min(10000000,Number(b.baseRevenue)||0));db.nextRun=s.autoEnabled?Date.now()+s.frequency*1000:0;save();return reply(res,200,summary())}
       return reply(res,404,{error:'Ruta no encontrada'});
     }catch(e){console.error(e);return reply(res,400,{error:'No se pudo procesar la solicitud'})}
   }
