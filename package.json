@@ -1,0 +1,15 @@
+{
+  "name": "storeboard-push",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Standalone demo storefront with iPhone web push alerts",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}
