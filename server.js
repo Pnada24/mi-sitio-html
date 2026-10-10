@@ -53,6 +53,22 @@ http.createServer(async(req,res)=>{
     res.writeHead(200,{'Content-Type':'image/'+match[1],'Content-Length':buf.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
     return res.end(buf)
   }
+  if(p==='/manifest.webmanifest'){
+    const storeName=safe(db.settings.storeName,48)||'Mi tienda';
+    const version=Number(db.settings.logoVersion)||0;
+    const manifest={
+      id:'/',name:storeName,short_name:storeName.slice(0,22),
+      description:'Panel privado de pedidos simulados y notificaciones',
+      start_url:'/',scope:'/',display:'standalone',
+      background_color:'#f7f8fa',theme_color:'#194e37',
+      icons:[
+        {src:'/brand-icon?v='+version,sizes:'180x180',purpose:'any maskable'},
+        {src:'/icon.svg',sizes:'any',type:'image/svg+xml',purpose:'any maskable'}
+      ]
+    };
+    res.writeHead(200,{'Content-Type':'application/manifest+json; charset=utf-8','Cache-Control':'no-store'});
+    return res.end(JSON.stringify(manifest));
+  }
   if(p==='/health')return reply(res,200,{ok:true});
   if(p==='/api/public')return reply(res,200,{publicKey:process.env.VAPID_PUBLIC_KEY});
   if(p.startsWith('/api/')){
@@ -88,5 +104,17 @@ http.createServer(async(req,res)=>{
   if(req.method!=='GET'&&req.method!=='HEAD')return reply(res,405,{error:'Método no permitido'});
   const target=p==='/'?'index.html':p.slice(1);
   if(!/^(index\.html|app\.js|sw\.js|icon\.svg|manifest\.webmanifest)$/.test(target)){res.writeHead(404);return res.end('Not Found')}
-  fs.readFile(path.join(__dirname,'public',target),(err,bytes)=>{if(err){res.writeHead(404);return res.end('Not Found')}res.writeHead(200,{'Content-Type':types[path.extname(target)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY'});res.end(bytes)})
+  fs.readFile(path.join(__dirname,'public',target),(err,bytes)=>{
+    if(err){res.writeHead(404);return res.end('Not Found')}
+    if(target==='index.html'){
+      const title=String(db.settings.storeName||'Mi tienda').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const version=Number(db.settings.logoVersion)||0;
+      let html=bytes.toString('utf8');
+      html=html.replace('name="apple-mobile-web-app-title" content="Storeboard"','name="apple-mobile-web-app-title" content="'+title+'"');
+      html=html.replace('rel="apple-touch-icon" href="/brand-icon"','rel="apple-touch-icon" sizes="180x180" href="/brand-icon?v='+version+'"');
+      bytes=Buffer.from(html,'utf8');
+    }
+    res.writeHead(200,{'Content-Type':types[path.extname(target)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY'});
+    res.end(bytes)
+  })
 }).listen(PORT,'0.0.0.0',()=>console.log('Storeboard listening on',PORT));
